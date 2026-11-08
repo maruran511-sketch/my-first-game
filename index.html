@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>はじめての横スクロールゲーム</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center;
+      background: #f4f7ff; color: #243047;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    .game-wrap { width: min(100vw, 1000px); padding: 14px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 2px 10px; }
+    h1 { font-size: clamp(18px, 3vw, 25px); margin: 0; }
+    #restart {
+      border: 0; border-radius: 999px; padding: 9px 15px; background: #243047;
+      color: white; font-weight: 700; cursor: pointer;
+    }
+    .stage { position: relative; overflow: hidden; border: 4px solid white; border-radius: 18px; box-shadow: 0 12px 35px #52658b26; background: #9fe4ff; }
+    canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; }
+    .help { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin: 10px 4px 0; font-size: 13px; color: #536079; }
+    .key { display: inline-block; padding: 3px 8px; border: 1px solid #c8d1e3; border-radius: 6px; background: white; color: #26344d; font-weight: 700; }
+    .touch { display: none; justify-content: space-between; gap: 14px; margin-top: 12px; }
+    .touch-group { display: flex; gap: 10px; }
+    .touch button { width: 62px; height: 54px; border: 0; border-radius: 14px; background: #fff; color: #26344d; font-size: 23px; font-weight: 800; box-shadow: 0 3px 0 #d5dced; touch-action: none; }
+    .touch button:active { transform: translateY(2px); box-shadow: 0 1px 0 #d5dced; }
+    @media (pointer: coarse) { .touch { display: flex; } }
+  </style>
+</head>
+<body>
+  <main class="game-wrap">
+    <header>
+      <h1>🌟 はじめての横スクロールゲーム</h1>
+      <button id="restart" type="button">最初から</button>
+    </header>
+    <div class="stage">
+      <canvas id="game" width="960" height="540" aria-label="コインを集めて旗を目指すゲーム"></canvas>
+    </div>
+    <div class="help">
+      <span><span class="key">←</span> <span class="key">→</span> または <span class="key">A</span> <span class="key">D</span>：移動</span>
+      <span><span class="key">スペース</span> / <span class="key">↑</span>：ジャンプ</span>
+      <span>コインを5枚集めて、右端の旗を目指そう！</span>
+    </div>
+    <div class="touch" aria-label="タッチ操作">
+      <div class="touch-group">
+        <button id="leftBtn" aria-label="左へ">◀</button>
+        <button id="rightBtn" aria-label="右へ">▶</button>
+      </div>
+      <button id="jumpBtn" aria-label="ジャンプ">⤒</button>
+    </div>
+  </main>
+
+<script>
+(() => {
+  // ===== 1. ゲームの基本設定 =====
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  const H = canvas.height;
+  const WORLD_WIDTH = 2700;
+  const GROUND_Y = 470;
+  const GOAL_X = 2530;
+  const NEED_COINS = 5;
+
+  // ===== 2. ステージに置くもの =====
+  const platforms = [
+    { x: 260, y: 395, w: 135 },
+    { x: 500, y: 345, w: 145 },
+    { x: 790, y: 400, w: 145 },
+    { x: 1040, y: 350, w: 150 },
+    { x: 1330, y: 390, w: 150 },
+    { x: 1580, y: 325, w: 155 },
+    { x: 1880, y: 390, w: 155 },
+    { x: 2150, y: 345, w: 155 }
+  ];
+  const coinStarts = [
+    [150, 425], [315, 355], [555, 305], [720, 425],
+    [865, 360], [1105, 310], [1260, 425], [1400, 350],
+    [1640, 285], [1800, 425], [1950, 350], [2210, 305], [2390, 425]
+  ];
+  let coins;
+  let player;
+  let cameraX = 0;
+  let collected = 0;
+  let gameState = 'playing'; // playing / won / need-more
+  let messageTimer = 0;
+  const keys = { left: false, right: false };
+  let jumpQueued = false;
+
+  function resetGame() {
+    player = { x: 55, y: GROUND_Y - 48, w: 34, h: 48, vx: 0, vy: 0, onGround: true, face: 1 };
+    coins = coinStarts.map(([x, y]) => ({ x, y, taken: false, phase: Math.random() * Math.PI * 2 }));
+    cameraX = 0;
+    collected = 0;
+    gameState = 'playing';
+    messageTimer = 0;
+  }
+
+  // ===== 3. キーボード操作 =====
+  window.addEventListener('keydown', (e) => {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', ' ', 'Spacebar'].includes(e.key)) e.preventDefault();
+    if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') keys.left = true;
+    if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') keys.right = true;
+    if (e.key === 'ArrowUp' || e.key === ' ' || e.key === 'Spacebar' || e.key.toLowerCase() === 'w') jumpQueued = true;
+    if (e.key.toLowerCase() === 'r') resetGame();
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') keys.left = false;
+    if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') keys.right = false;
+  });
+  window.addEventListener('blur', () => { keys.left = false; keys.right = false; });
+
+  // スマホでも遊べるように、画面上のボタンにも操作を割り当てる
+  function bindHoldButton(id, keyName) {
+    const button = document.getElementById(id);
+    const down = (e) => { e.preventDefault(); keys[keyName] = true; };
+    const up = (e) => { e.preventDefault(); keys[keyName] = false; };
+    button.addEventListener('pointerdown', down);
+    button.addEventListener('pointerup', up);
+    button.addEventListener('pointerleave', up);
+    button.addEventListener('pointercancel', up);
+  }
+  bindHoldButton('leftBtn', 'left');
+  bindHoldButton('rightBtn', 'right');
+  document.getElementById('jumpBtn').addEventListener('pointerdown', (e) => { e.preventDefault(); jumpQueued = true; });
+  document.getElementById('restart').addEventListener('click', resetGame);
+
+  // ===== 4. プレイヤーを動かす =====
+  function update() {
+    // ゴール前でコイン不足のメッセージを表示している間は、少し待って操作を再開する
+    if (gameState === 'need-more') {
+      if (messageTimer > 0) messageTimer--;
+      if (messageTimer === 0) gameState = 'playing';
+      return;
+    }
+    if (gameState !== 'playing') return;
+
+    const previousBottom = player.y + player.h;
+    const moveSpeed = 4.4;
+    player.vx = 0;
+    if (keys.left) { player.vx = -moveSpeed; player.face = -1; }
+    if (keys.right) { player.vx = moveSpeed; player.face = 1; }
+    player.x += player.vx;
+    player.x = Math.max(0, Math.min(WORLD_WIDTH - player.w, player.x));
+
+    if (jumpQueued && player.onGround) {
+      player.vy = -13.2;
+      player.onGround = false;
+    }
+    jumpQueued = false;
+
+    player.vy += 0.58; // 重力。数字を大きくすると落下が速くなる
+    player.y += player.vy;
+    player.onGround = false;
+
+    // 地面に着地
+    if (player.vy >= 0 && previousBottom <= GROUND_Y && player.y + player.h >= GROUND_Y) {
+      player.y = GROUND_Y - player.h;
+      player.vy = 0;
+      player.onGround = true;
+    }
+    // 足場の上に着地（下からすり抜けられる簡単な足場）
+    if (player.vy >= 0) {
+      for (const p of platforms) {
+        const overlaps = player.x + player.w > p.x && player.x < p.x + p.w;
+        if (overlaps && previousBottom <= p.y && player.y + player.h >= p.y) {
+          player.y = p.y - player.h;
+          player.vy = 0;
+          player.onGround = true;
+        }
+      }
+    }
+
+    // コインを取る
+    for (const coin of coins) {
+      if (coin.taken) continue;
+      const dx = (player.x + player.w / 2) - coin.x;
+      const dy = (player.y + player.h / 2) - coin.y;
+      if (Math.hypot(dx, dy) < 34) {
+        coin.taken = true;
+        collected++;
+      }
+    }
+
+    // 落ちた場合はスタート地点に戻す
+    if (player.y > H + 100) {
+      player.x = Math.max(30, player.x - 180);
+      player.y = GROUND_Y - player.h;
+      player.vy = 0;
+    }
+
+    // カメラをプレイヤーに追いかけさせる
+    cameraX = Math.max(0, Math.min(WORLD_WIDTH - W, player.x - W * 0.38));
+
+    // ゴール判定
+    if (player.x > GOAL_X && player.x < GOAL_X + 90) {
+      if (collected >= NEED_COINS) gameState = 'won';
+      else { gameState = 'need-more'; messageTimer = 100; player.x = GOAL_X - 5; }
+    }
+  }
+
+  // ===== 5. ステージを描く =====
+  function roundedRect(x, y, w, h, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+    ctx.fill();
+  }
+
+  function drawBackground() {
+    const sky = ctx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, '#8edfff');
+    sky.addColorStop(1, '#effcff');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, H);
+
+    // 遠くの山
+    ctx.fillStyle = '#b6e7c8';
+    for (let i = -1; i < 7; i++) {
+      const x = i * 210 - (cameraX * 0.18 % 210);
+      ctx.beginPath();
+      ctx.arc(x + 90, 455, 125, Math.PI, 0);
+      ctx.fill();
+    }
+    // 雲
+    ctx.fillStyle = '#ffffffcc';
+    for (let i = 0; i < 6; i++) {
+      const x = ((i * 230 + 80 - cameraX * 0.32) % (W + 260) + (W + 260)) % (W + 260) - 100;
+      const y = 80 + (i % 3) * 55;
+      ctx.beginPath();
+      ctx.arc(x, y, 25, 0, Math.PI * 2);
+      ctx.arc(x + 28, y - 10, 31, 0, Math.PI * 2);
+      ctx.arc(x + 60, y, 24, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawWorld() {
+    // 地面
+    ctx.fillStyle = '#64bd59';
+    ctx.fillRect(0, GROUND_Y, WORLD_WIDTH, H - GROUND_Y);
+    ctx.fillStyle = '#b9794b';
+    ctx.fillRect(0, GROUND_Y + 18, WORLD_WIDTH, H - GROUND_Y - 18);
+    for (let x = 0; x < WORLD_WIDTH; x += 48) {
+      ctx.fillStyle = '#9b613e';
+      ctx.fillRect(x, GROUND_Y + 35, 2, 18);
+      ctx.fillRect(x + 23, GROUND_Y + 65, 2, 15);
+    }
+    // 足場
+    for (const p of platforms) {
+      roundedRect(p.x, p.y, p.w, 18, 6, '#b9794b');
+      ctx.fillStyle = '#70c95e';
+      ctx.fillRect(p.x, p.y, p.w, 6);
+      ctx.fillStyle = '#8e5637';
+      for (let x = p.x + 20; x < p.x + p.w; x += 38) ctx.fillRect(x, p.y + 8, 2, 9);
+    }
+
+    // コイン
+    for (const coin of coins) {
+      if (coin.taken) continue;
+      const bob = Math.sin(performance.now() / 240 + coin.phase) * 4;
+      ctx.save();
+      ctx.translate(coin.x, coin.y + bob);
+      ctx.fillStyle = '#ffcf3f';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 11, 15, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#e99a19';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.fillStyle = '#fff2a5';
+      ctx.fillRect(-3, -8, 3, 8);
+      ctx.restore();
+    }
+
+    // ゴールの旗
+    ctx.fillStyle = '#f5f5f5';
+    ctx.fillRect(GOAL_X + 22, GROUND_Y - 130, 7, 130);
+    ctx.fillStyle = '#ff5f75';
+    ctx.beginPath();
+    ctx.moveTo(GOAL_X + 29, GROUND_Y - 128);
+    ctx.lineTo(GOAL_X + 95, GROUND_Y - 108);
+    ctx.lineTo(GOAL_X + 29, GROUND_Y - 87);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#e7eaf2';
+    ctx.fillRect(GOAL_X + 8, GROUND_Y, 36, 8);
+  }
+
+  function drawPlayer() {
+    const x = player.x;
+    const y = player.y;
+    // 影
+    ctx.fillStyle = '#29435a33';
+    ctx.beginPath();
+    ctx.ellipse(x + player.w / 2, Math.min(GROUND_Y + 4, y + player.h + 3), 18, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // 体
+    roundedRect(x + 4, y + 16, 26, 29, 7, '#2584e8');
+    // 顔
+    roundedRect(x + 3, y + 2, 28, 23, 8, '#ffd3a4');
+    // 帽子
+    roundedRect(x + 1, y, 32, 10, 5, '#ff6d5f');
+    ctx.fillStyle = '#243047';
+    const eyeX = player.face === 1 ? x + 23 : x + 10;
+    ctx.beginPath();
+    ctx.arc(eyeX, y + 14, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+    // 足
+    roundedRect(x + 2, y + 41, 13, 7, 3, '#60483d');
+    roundedRect(x + 19, y + 41, 13, 7, 3, '#60483d');
+  }
+
+  function drawHud() {
+    roundedRect(18, 16, 205, 52, 14, '#ffffffdf');
+    ctx.fillStyle = '#26344d';
+    ctx.font = 'bold 22px system-ui, sans-serif';
+    ctx.fillText(`🪙 ${collected} / ${NEED_COINS}`, 34, 50);
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillStyle = '#52627c';
+    ctx.fillText('コインを5枚集めよう', 112, 48);
+
+    if (gameState === 'need-more') {
+      drawMessage('あと少し！', `コインをあと${NEED_COINS - collected}枚集めよう`);
+    }
+    if (gameState === 'won') {
+      drawMessage('ステージクリア！', 'やったね！「最初から」で何度でも遊べるよ');
+    }
+  }
+
+  function drawMessage(title, subtitle) {
+    ctx.fillStyle = '#17243b99';
+    ctx.fillRect(0, 0, W, H);
+    roundedRect(170, 185, 620, 160, 22, '#ffffff');
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#243047';
+    ctx.font = 'bold 38px system-ui, sans-serif';
+    ctx.fillText(title, W / 2, 250);
+    ctx.font = '18px system-ui, sans-serif';
+    ctx.fillStyle = '#586780';
+    ctx.fillText(subtitle, W / 2, 292);
+    ctx.textAlign = 'left';
+  }
+
+  // ===== 6. 毎フレーム、動かして描く =====
+  function frame() {
+    update();
+    drawBackground();
+    ctx.save();
+    ctx.translate(-cameraX, 0);
+    drawWorld();
+    drawPlayer();
+    ctx.restore();
+    drawHud();
+    requestAnimationFrame(frame);
+  }
+
+  resetGame();
+  frame();
+})();
+</script>
+</body>
+</html>
