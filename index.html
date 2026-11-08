@@ -13,12 +13,15 @@
       font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     }
     .game-wrap { width: min(100vw, 1000px); padding: 14px; }
-    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 2px 10px; }
+    header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 0 2px 10px; }
     h1 { font-size: clamp(18px, 3vw, 25px); margin: 0; }
-    #restart {
+    .header-actions { display: flex; align-items: center; gap: 8px; }
+    #bgmToggle, #restart {
       border: 0; border-radius: 999px; padding: 9px 15px; background: #243047;
       color: white; font-weight: 700; cursor: pointer;
     }
+    #bgmToggle { background: #237c68; }
+    #bgmToggle[aria-pressed="false"] { background: #778399; }
     .stage { position: relative; overflow: hidden; border: 4px solid white; border-radius: 18px; box-shadow: 0 12px 35px #52658b26; background: #9fe4ff; }
     canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; }
     .help { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin: 10px 4px 0; font-size: 13px; color: #536079; }
@@ -34,7 +37,10 @@
   <main class="game-wrap">
     <header>
       <h1>🌟 はじめての横スクロールゲーム</h1>
-      <button id="restart" type="button">最初から</button>
+      <div class="header-actions">
+        <button id="bgmToggle" type="button" aria-pressed="true" aria-label="BGMをオフにする">🎵 BGM ON</button>
+        <button id="restart" type="button">最初から</button>
+      </div>
     </header>
     <div class="stage">
       <canvas id="game" width="960" height="540" aria-label="コインを集めて旗を目指すゲーム"></canvas>
@@ -44,7 +50,7 @@
       <span><span class="key">スペース</span> / <span class="key">↑</span>：ジャンプ</span>
       <span>敵は上から踏むと倒せる！星が飛び散って100点ゲット。横から触れるとライフが減るよ。</span>
       <span>黄色い「？」ブロックは下から叩くとコインが出るよ！</span>
-      <span>🔊 効果音あり（最初のキー操作・タッチ操作後に有効）</span>
+      <span>🔊 効果音あり・🎵 BGMは最初の操作後に再生（右上のボタンでON/OFF）</span>
     </div>
     <div class="touch" aria-label="タッチ操作">
       <div class="touch-group">
@@ -108,6 +114,15 @@
   // 外部音源は使わず、ブラウザ内で短い音を合成する。
   // 音声は最初のキー操作／タッチ操作のあとに有効になる。
   let audioContext = null;
+  let bgmEnabled = true;
+  let bgmTimer = null;
+  let bgmStep = 0;
+  let nextBgmTime = 0;
+  const BGM_BPM = 112;
+  const BGM_STEP_SECONDS = 60 / BGM_BPM / 2; // 8分音符
+  // オリジナルの明るい8ビット風メロディ（MIDI音程）。nullは休符。
+  const BGM_MELODY = [72, 76, 79, null, 76, 79, 84, null, 81, 79, 76, null, 74, 76, 79, null];
+  const BGM_BASS = [48, null, 48, null, 53, null, 53, null, 55, null, 55, null, 50, null, 50, null];
 
   function unlockAudio() {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -116,7 +131,11 @@
       if (!audioContext) audioContext = new AudioContextClass();
       if (audioContext.state === 'suspended') {
         const resumeResult = audioContext.resume();
-        if (resumeResult && typeof resumeResult.catch === 'function') resumeResult.catch(() => {});
+        if (resumeResult && typeof resumeResult.then === 'function') {
+          resumeResult.then(() => { if (bgmEnabled) startBgm(); }).catch(() => {});
+        }
+      } else if (audioContext.state === 'running' && bgmEnabled) {
+        startBgm();
       }
       return audioContext;
     } catch (error) {
@@ -125,9 +144,91 @@
     }
   }
 
-  // 最初のユーザー操作で音声を解放（ブラウザの自動再生制限に対応）。
-  window.addEventListener('pointerdown', unlockAudio, { once: true });
-  window.addEventListener('keydown', unlockAudio, { once: true });
+  function midiToFrequency(note) {
+    return 440 * Math.pow(2, (note - 69) / 12);
+  }
+
+  function scheduleBgmNote(ac, midiNote, startAt, duration, waveType, volume) {
+    const oscillator = ac.createOscillator();
+    const gain = ac.createGain();
+    oscillator.type = waveType;
+    oscillator.frequency.setValueAtTime(midiToFrequency(midiNote), startAt);
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.exponentialRampToValueAtTime(volume, startAt + 0.012);
+    gain.gain.setValueAtTime(volume, Math.max(startAt + 0.013, startAt + duration * 0.55));
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+    oscillator.connect(gain);
+    gain.connect(ac.destination);
+    oscillator.start(startAt);
+    oscillator.stop(startAt + duration + 0.02);
+  }
+
+  function scheduleBgm() {
+    const ac = audioContext;
+    if (!bgmEnabled || !ac || ac.state !== 'running') return;
+    const scheduleUntil = ac.currentTime + 0.14;
+    while (nextBgmTime < scheduleUntil) {
+      const index = bgmStep % BGM_MELODY.length;
+      const melodyNote = BGM_MELODY[index];
+      const bassNote = BGM_BASS[index];
+      if (melodyNote !== null) {
+        scheduleBgmNote(ac, melodyNote, nextBgmTime, BGM_STEP_SECONDS * 0.78, 'square', 0.012);
+      }
+      if (bassNote !== null) {
+        scheduleBgmNote(ac, bassNote, nextBgmTime, BGM_STEP_SECONDS * 0.9, 'triangle', 0.025);
+      }
+      // 4拍ごとに控えめな低音を入れて、リズムを作る。
+      if (index % 4 === 0) {
+        scheduleBgmNote(ac, 36, nextBgmTime, 0.11, 'sine', 0.018);
+      }
+      nextBgmTime += BGM_STEP_SECONDS;
+      bgmStep++;
+    }
+  }
+
+  function startBgm() {
+    if (!bgmEnabled || !audioContext || audioContext.state !== 'running' || bgmTimer !== null) return;
+    bgmStep = 0;
+    nextBgmTime = audioContext.currentTime + 0.04;
+    scheduleBgm();
+    bgmTimer = window.setInterval(scheduleBgm, 25);
+  }
+
+  function stopBgm() {
+    if (bgmTimer !== null) {
+      window.clearInterval(bgmTimer);
+      bgmTimer = null;
+    }
+  }
+
+  function updateBgmButton() {
+    const button = document.getElementById('bgmToggle');
+    if (!button) return;
+    button.textContent = bgmEnabled ? '🎵 BGM ON' : '🔇 BGM OFF';
+    button.setAttribute('aria-pressed', String(bgmEnabled));
+    button.setAttribute('aria-label', bgmEnabled ? 'BGMをオフにする' : 'BGMをオンにする');
+  }
+
+  function toggleBgm() {
+    bgmEnabled = !bgmEnabled;
+    updateBgmButton();
+    if (bgmEnabled) {
+      const ac = unlockAudio();
+      if (ac && ac.state === 'running') startBgm();
+    } else {
+      stopBgm();
+    }
+  }
+
+  // 最初のキー操作／画面タッチで音声を解放し、BGMを開始する。
+  // BGMボタン自身のクリックは除外し、ON/OFF操作を優先する。
+  function handleAudioGesture(event) {
+    const target = event && event.target;
+    if (target && typeof target.closest === 'function' && target.closest('#bgmToggle')) return;
+    unlockAudio();
+  }
+  window.addEventListener('pointerdown', handleAudioGesture);
+  window.addEventListener('keydown', handleAudioGesture);
 
   function playTone(startFrequency, endFrequency, duration, type, volume, delay = 0) {
     const ac = unlockAudio();
@@ -305,6 +406,8 @@
   bindHoldButton('rightBtn', 'right');
   document.getElementById('jumpBtn').addEventListener('pointerdown', (e) => { e.preventDefault(); jumpQueued = true; });
   document.getElementById('restart').addEventListener('click', resetGame);
+  document.getElementById('bgmToggle').addEventListener('click', toggleBgm);
+  updateBgmButton();
 
   // ===== 4. プレイヤーを動かす =====
   function update() {
