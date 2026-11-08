@@ -43,6 +43,7 @@
       <span><span class="key">←</span> <span class="key">→</span> または <span class="key">A</span> <span class="key">D</span>：移動</span>
       <span><span class="key">スペース</span> / <span class="key">↑</span>：ジャンプ</span>
       <span>敵は上から踏むと倒せる！横から触れるとライフが減るよ。</span>
+      <span>黄色い「？」ブロックは下から叩くとコインが出るよ！</span>
     </div>
     <div class="touch" aria-label="タッチ操作">
       <div class="touch-group">
@@ -81,7 +82,17 @@
     [865, 360], [1105, 310], [1260, 425], [1400, 350],
     [1640, 285], [1800, 425], [1950, 350], [2210, 305], [2390, 425]
   ];
+  // 下から叩ける「？」ブロック。1つにつきコインが1枚出る。
+  const blockStarts = [
+    { x: 210, y: 340 },
+    { x: 690, y: 320 },
+    { x: 1210, y: 340 },
+    { x: 1690, y: 300 },
+    { x: 2290, y: 320 }
+  ];
   let coins;
+  let bonusCoins;
+  let blocks;
   let enemies;
   let player;
   let cameraX = 0;
@@ -106,6 +117,8 @@
   function resetGame() {
     player = { x: 55, y: GROUND_Y - 48, w: 34, h: 48, vx: 0, vy: 0, onGround: true, face: 1, hitTimer: 0, knockbackX: 0 };
     coins = coinStarts.map(([x, y]) => ({ x, y, taken: false, phase: Math.random() * Math.PI * 2 }));
+    bonusCoins = [];
+    blocks = blockStarts.map((block) => ({ ...block, w: 38, h: 34, used: false, bumpTimer: 0 }));
     enemies = enemyStarts.map((enemy) => ({
       ...enemy,
       y: enemy.platformY - 30,
@@ -161,8 +174,14 @@
     }
     if (gameState !== 'playing') return;
 
+    const previousTop = player.y;
     const previousBottom = player.y + player.h;
     const moveSpeed = 4.4;
+
+    // ブロックの揺れを少しずつ止める
+    for (const block of blocks) {
+      if (block.bumpTimer > 0) block.bumpTimer--;
+    }
 
     // 敵を左右にパトロールさせる
     for (const enemy of enemies) {
@@ -193,7 +212,47 @@
     player.vy += 0.58; // 重力。数字を大きくすると落下が速くなる
     player.y += player.vy;
     const wasFalling = player.vy > 0;
+    const wasRising = player.vy < 0;
     player.onGround = false;
+
+    // ジャンプ中、頭がブロックの下側に当たったか調べる
+    if (wasRising) {
+      for (const block of blocks) {
+        const overlapsX = player.x + player.w > block.x + 3 && player.x < block.x + block.w - 3;
+        const crossedUnderside = previousTop >= block.y + block.h && player.y <= block.y + block.h;
+        if (overlapsX && crossedUnderside) {
+          player.y = block.y + block.h;
+          player.vy = 0;
+          block.bumpTimer = 12;
+          if (!block.used) {
+            block.used = true;
+            // コインがブロックから飛び出し、ブロックの上に落ち着く
+            bonusCoins.push({
+              x: block.x + block.w / 2,
+              y: block.y - 12,
+              restY: block.y - 18,
+              vy: -7.5,
+              active: true,
+              settled: false,
+              phase: Math.random() * Math.PI * 2
+            });
+          }
+          break;
+        }
+      }
+    }
+
+    // ブロックから出たコインを上に飛ばし、その後ブロックの上に置く
+    for (const coin of bonusCoins) {
+      if (!coin.active || coin.settled) continue;
+      coin.y += coin.vy;
+      coin.vy += 0.34;
+      if (coin.vy > 0 && coin.y >= coin.restY) {
+        coin.y = coin.restY;
+        coin.vy = 0;
+        coin.settled = true;
+      }
+    }
 
     // 地面に着地
     if (player.vy >= 0 && previousBottom <= GROUND_Y && player.y + player.h >= GROUND_Y) {
@@ -207,6 +266,15 @@
         const overlaps = player.x + player.w > p.x && player.x < p.x + p.w;
         if (overlaps && previousBottom <= p.y && player.y + player.h >= p.y) {
           player.y = p.y - player.h;
+          player.vy = 0;
+          player.onGround = true;
+        }
+      }
+      // ？ブロックの上にも着地できる
+      for (const block of blocks) {
+        const overlaps = player.x + player.w > block.x && player.x < block.x + block.w;
+        if (overlaps && previousBottom <= block.y && player.y + player.h >= block.y) {
+          player.y = block.y - player.h;
           player.vy = 0;
           player.onGround = true;
         }
@@ -247,6 +315,16 @@
       const dy = (player.y + player.h / 2) - coin.y;
       if (Math.hypot(dx, dy) < 34) {
         coin.taken = true;
+        collected++;
+      }
+    }
+    // ブロックから出たボーナスコインも触れると獲得
+    for (const coin of bonusCoins) {
+      if (!coin.active) continue;
+      const dx = (player.x + player.w / 2) - coin.x;
+      const dy = (player.y + player.h / 2) - coin.y;
+      if (Math.hypot(dx, dy) < 34) {
+        coin.active = false;
         collected++;
       }
     }
@@ -322,6 +400,40 @@
       ctx.fillRect(p.x, p.y, p.w, 6);
       ctx.fillStyle = '#8e5637';
       for (let x = p.x + 20; x < p.x + p.w; x += 38) ctx.fillRect(x, p.y + 8, 2, 9);
+    }
+
+    // ？ブロック（1回叩くと空っぽのブロックになる）
+    for (const block of blocks) {
+      const bump = block.bumpTimer > 0 ? Math.sin((block.bumpTimer / 12) * Math.PI) * 7 : 0;
+      const bx = block.x;
+      const by = block.y - bump;
+      roundedRect(bx, by, block.w, block.h, 5, block.used ? '#a87545' : '#f6b936');
+      ctx.strokeStyle = block.used ? '#80532f' : '#d68b20';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(bx + 1.5, by + 1.5, block.w - 3, block.h - 3);
+      ctx.fillStyle = block.used ? '#c08b58' : '#fff1a6';
+      ctx.font = 'bold 25px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(block.used ? '·' : '?', bx + block.w / 2, by + 26);
+      ctx.textAlign = 'left';
+    }
+
+    // ブロックから飛び出したボーナスコイン
+    for (const coin of bonusCoins) {
+      if (!coin.active) continue;
+      const bob = coin.settled ? Math.sin(performance.now() / 220 + coin.phase) * 2 : 0;
+      ctx.save();
+      ctx.translate(coin.x, coin.y + bob);
+      ctx.fillStyle = '#ffcf3f';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 11, 15, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#e99a19';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.fillStyle = '#fff2a5';
+      ctx.fillRect(-3, -8, 3, 8);
+      ctx.restore();
     }
 
     // コイン
@@ -431,7 +543,7 @@
   }
 
   function drawHud() {
-    roundedRect(18, 16, 285, 58, 14, '#ffffffdf');
+    roundedRect(18, 16, 310, 58, 14, '#ffffffdf');
     ctx.fillStyle = '#26344d';
     ctx.font = 'bold 21px system-ui, sans-serif';
     ctx.fillText(`🪙 ${collected} / ${NEED_COINS}`, 32, 42);
