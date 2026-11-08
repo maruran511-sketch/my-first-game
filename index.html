@@ -44,6 +44,7 @@
       <span><span class="key">スペース</span> / <span class="key">↑</span>：ジャンプ</span>
       <span>敵は上から踏むと倒せる！横から触れるとライフが減るよ。</span>
       <span>黄色い「？」ブロックは下から叩くとコインが出るよ！</span>
+      <span>🔊 効果音あり（最初のキー操作・タッチ操作後に有効）</span>
     </div>
     <div class="touch" aria-label="タッチ操作">
       <div class="touch-group">
@@ -100,6 +101,77 @@
   let lives = 3;
   let gameState = 'playing'; // playing / won / need-more / game-over
   let messageTimer = 0;
+
+  // ===== 0. オリジナル効果音（Web Audio API） =====
+  // 外部音源は使わず、ブラウザ内で短い音を合成する。
+  // 音声は最初のキー操作／タッチ操作のあとに有効になる。
+  let audioContext = null;
+
+  function unlockAudio() {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+    try {
+      if (!audioContext) audioContext = new AudioContextClass();
+      if (audioContext.state === 'suspended') {
+        const resumeResult = audioContext.resume();
+        if (resumeResult && typeof resumeResult.catch === 'function') resumeResult.catch(() => {});
+      }
+      return audioContext;
+    } catch (error) {
+      // 音声に対応していない環境でもゲーム自体は遊べる。
+      return null;
+    }
+  }
+
+  // 最初のユーザー操作で音声を解放（ブラウザの自動再生制限に対応）。
+  window.addEventListener('pointerdown', unlockAudio, { once: true });
+  window.addEventListener('keydown', unlockAudio, { once: true });
+
+  function playTone(startFrequency, endFrequency, duration, type, volume, delay = 0) {
+    const ac = unlockAudio();
+    if (!ac) return;
+
+    const play = () => {
+      if (ac.state !== 'running') return;
+      const startAt = ac.currentTime + delay;
+      const oscillator = ac.createOscillator();
+      const gain = ac.createGain();
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(startFrequency, startAt);
+      oscillator.frequency.exponentialRampToValueAtTime(Math.max(20, endFrequency), startAt + duration);
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), startAt + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+      oscillator.connect(gain);
+      gain.connect(ac.destination);
+      oscillator.start(startAt);
+      oscillator.stop(startAt + duration + 0.015);
+    };
+
+    if (ac.state === 'running') {
+      play();
+    } else if (ac.state === 'suspended') {
+      ac.resume().then(play).catch(() => {});
+    }
+  }
+
+  function playBlockHitSound() {
+    // 低めの「ポコッ／コツッ」。
+    playTone(245, 118, 0.105, 'triangle', 0.13);
+    playTone(510, 330, 0.055, 'sine', 0.035, 0.008);
+  }
+
+  function playCoinPopSound() {
+    // コインが飛び出すときの明るい2音。
+    playTone(760, 1040, 0.09, 'sine', 0.065);
+    playTone(1080, 1460, 0.12, 'sine', 0.075, 0.075);
+  }
+
+  function playCoinCollectSound() {
+    // コイン取得時の短いキラッとした音。
+    playTone(980, 1320, 0.075, 'sine', 0.055);
+    playTone(1320, 1660, 0.095, 'sine', 0.05, 0.055);
+  }
 
   // 敵の配置。platformY がある敵は足場の上を歩く
   const enemyStarts = [
@@ -224,8 +296,10 @@
           player.y = block.y + block.h;
           player.vy = 0;
           block.bumpTimer = 12;
+          playBlockHitSound();
           if (!block.used) {
             block.used = true;
+            playCoinPopSound();
             // コインがブロックから飛び出し、ブロックの上に落ち着く
             bonusCoins.push({
               x: block.x + block.w / 2,
@@ -316,6 +390,7 @@
       if (Math.hypot(dx, dy) < 34) {
         coin.taken = true;
         collected++;
+        playCoinCollectSound();
       }
     }
     // ブロックから出たボーナスコインも触れると獲得
@@ -326,6 +401,7 @@
       if (Math.hypot(dx, dy) < 34) {
         coin.active = false;
         collected++;
+        playCoinCollectSound();
       }
     }
 
