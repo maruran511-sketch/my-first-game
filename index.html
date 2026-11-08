@@ -42,7 +42,7 @@
     <div class="help">
       <span><span class="key">←</span> <span class="key">→</span> または <span class="key">A</span> <span class="key">D</span>：移動</span>
       <span><span class="key">スペース</span> / <span class="key">↑</span>：ジャンプ</span>
-      <span>敵は上から踏むと倒せる！横から触れるとライフが減るよ。</span>
+      <span>敵は上から踏むと倒せる！星が飛び散って100点ゲット。横から触れるとライフが減るよ。</span>
       <span>黄色い「？」ブロックは下から叩くとコインが出るよ！</span>
       <span>🔊 効果音あり（最初のキー操作・タッチ操作後に有効）</span>
     </div>
@@ -95,6 +95,7 @@
   let bonusCoins;
   let blocks;
   let enemies;
+  let starParticles = []; // 敵を倒したときに飛び散る星
   let player;
   let cameraX = 0;
   let collected = 0;
@@ -182,6 +183,64 @@
     playTone(110, 55, 0.105, 'sine', 0.055, 0.018);
   }
 
+  // 敵を倒した位置から、星の紙吹雪が四方に飛び散る。
+  function spawnStarBurst(x, y) {
+    const colors = ['#ffe45e', '#fff6b0', '#ff9fcb', '#8ee7ff', '#ffffff'];
+    for (let i = 0; i < 12; i++) {
+      const angle = (Math.PI * 2 * i / 12) + (Math.random() - 0.5) * 0.28;
+      const speed = 2.2 + Math.random() * 3.1;
+      const life = 24 + Math.floor(Math.random() * 12);
+      starParticles.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 0.8,
+        gravity: 0.13 + Math.random() * 0.08,
+        size: 5 + Math.random() * 4,
+        rotation: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 0.22,
+        life, maxLife: life,
+        color: colors[i % colors.length]
+      });
+    }
+  }
+
+  function updateStarParticles() {
+    for (const particle of starParticles) {
+      particle.x += particle.vx;
+      particle.y += particle.vy;
+      particle.vy += particle.gravity;
+      particle.vx *= 0.985;
+      particle.rotation += particle.spin;
+      particle.life--;
+    }
+    starParticles = starParticles.filter((particle) => particle.life > 0);
+  }
+
+  function drawStarParticles() {
+    for (const particle of starParticles) {
+      const fade = Math.min(1, particle.life / 8, particle.life / particle.maxLife + 0.18);
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, fade);
+      ctx.translate(particle.x, particle.y);
+      ctx.rotate(particle.rotation);
+      ctx.fillStyle = particle.color;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      for (let point = 0; point < 10; point++) {
+        const radius = point % 2 === 0 ? particle.size : particle.size * 0.43;
+        const angle = -Math.PI / 2 + point * Math.PI / 5;
+        const px = Math.cos(angle) * radius;
+        const py = Math.sin(angle) * radius;
+        if (point === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   // 敵の配置。platformY がある敵は足場の上を歩く
   const enemyStarts = [
     { x: 420, minX: 410, maxX: 465, platformY: GROUND_Y, speed: 1.25 },
@@ -209,6 +268,7 @@
       alive: true,
       anim: Math.random() * Math.PI * 2
     }));
+    starParticles = [];
     cameraX = 0;
     collected = 0;
     score = 0;
@@ -248,6 +308,8 @@
 
   // ===== 4. プレイヤーを動かす =====
   function update() {
+    // 敵を倒したあとの星の粒子は、ゲーム状態に関係なく最後まで散らす。
+    updateStarParticles();
     // ゴール前でコイン不足のメッセージを表示している間は、少し待って操作を再開する
     if (gameState === 'need-more') {
       if (messageTimer > 0) messageTimer--;
@@ -377,6 +439,7 @@
         enemy.alive = false;
         score += 100; // 敵を1体倒すごとに100点
         playEnemyStompSound();
+        spawnStarBurst(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
         player.y = enemy.y - player.h;
         player.vy = -8.8; // 踏むと少し高く跳ね返る
         player.onGround = false;
@@ -680,6 +743,7 @@
     ctx.translate(-cameraX, 0);
     drawWorld();
     drawEnemies();
+    drawStarParticles();
     drawPlayer();
     ctx.restore();
     drawHud();
