@@ -98,6 +98,7 @@
   let player;
   let cameraX = 0;
   let collected = 0;
+  let score = 0; // 敵を倒すと100点ずつ加算
   let lives = 3;
   let gameState = 'playing'; // playing / won / need-more / game-over
   let messageTimer = 0;
@@ -210,6 +211,7 @@
     }));
     cameraX = 0;
     collected = 0;
+    score = 0;
     lives = 3;
     gameState = 'playing';
     messageTimer = 0;
@@ -373,6 +375,7 @@
       // 落下中に敵の頭へ着地したら踏みつけ成功
       if (wasFalling && previousBottom <= enemy.y + 16) {
         enemy.alive = false;
+        score += 100; // 敵を1体倒すごとに100点
         playEnemyStompSound();
         player.y = enemy.y - player.h;
         player.vy = -8.8; // 踏むと少し高く跳ね返る
@@ -628,17 +631,21 @@
   }
 
   function drawHud() {
-    roundedRect(18, 16, 310, 58, 14, '#ffffffdf');
+    roundedRect(18, 16, 430, 58, 14, '#ffffffdf');
     ctx.fillStyle = '#26344d';
     ctx.font = 'bold 21px system-ui, sans-serif';
     ctx.fillText(`🪙 ${collected} / ${NEED_COINS}`, 32, 42);
     ctx.font = 'bold 19px system-ui, sans-serif';
     ctx.fillStyle = '#e75b68';
     ctx.fillText(`❤ ${lives}`, 172, 42);
+    ctx.fillStyle = '#26344d';
+    ctx.font = 'bold 19px system-ui, sans-serif';
+    ctx.fillText(`★ ${score.toLocaleString('ja-JP')}`, 270, 42);
     ctx.font = '12px system-ui, sans-serif';
     ctx.fillStyle = '#52627c';
     ctx.fillText('コイン', 34, 61);
     ctx.fillText('ライフ', 172, 61);
+    ctx.fillText('スコア', 273, 61);
 
     if (gameState === 'need-more') {
       drawMessage('あと少し！', `コインをあと${NEED_COINS - collected}枚集めよう`);
