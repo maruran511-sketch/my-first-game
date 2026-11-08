@@ -173,6 +173,14 @@
     playTone(1320, 1660, 0.095, 'sine', 0.05, 0.055);
   }
 
+  function playEnemyStompSound() {
+    // 敵を踏んだ瞬間の、低くて軽いオリジナルの「ポンッ！」。
+    // 3つの短い音を重ね、既存のブロック／コイン音と区別する。
+    playTone(190, 68, 0.145, 'triangle', 0.14);
+    playTone(520, 245, 0.085, 'sine', 0.05, 0.012);
+    playTone(110, 55, 0.105, 'sine', 0.055, 0.018);
+  }
+
   // 敵の配置。platformY がある敵は足場の上を歩く
   const enemyStarts = [
     { x: 420, minX: 410, maxX: 465, platformY: GROUND_Y, speed: 1.25 },
@@ -365,6 +373,7 @@
       // 落下中に敵の頭へ着地したら踏みつけ成功
       if (wasFalling && previousBottom <= enemy.y + 16) {
         enemy.alive = false;
+        playEnemyStompSound();
         player.y = enemy.y - player.h;
         player.vy = -8.8; // 踏むと少し高く跳ね返る
         player.onGround = false;
