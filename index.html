@@ -42,7 +42,7 @@
     <div class="help">
       <span><span class="key">←</span> <span class="key">→</span> または <span class="key">A</span> <span class="key">D</span>：移動</span>
       <span><span class="key">スペース</span> / <span class="key">↑</span>：ジャンプ</span>
-      <span>コインを5枚集めて、右端の旗を目指そう！</span>
+      <span>敵は上から踏むと倒せる！横から触れるとライフが減るよ。</span>
     </div>
     <div class="touch" aria-label="タッチ操作">
       <div class="touch-group">
@@ -82,19 +82,42 @@
     [1640, 285], [1800, 425], [1950, 350], [2210, 305], [2390, 425]
   ];
   let coins;
+  let enemies;
   let player;
   let cameraX = 0;
   let collected = 0;
-  let gameState = 'playing'; // playing / won / need-more
+  let lives = 3;
+  let gameState = 'playing'; // playing / won / need-more / game-over
   let messageTimer = 0;
+
+  // 敵の配置。platformY がある敵は足場の上を歩く
+  const enemyStarts = [
+    { x: 420, minX: 410, maxX: 465, platformY: GROUND_Y, speed: 1.25 },
+    { x: 535, minX: 505, maxX: 605, platformY: 345, speed: 1.05 },
+    { x: 955, minX: 945, maxX: 1010, platformY: GROUND_Y, speed: 1.35 },
+    { x: 1360, minX: 1335, maxX: 1440, platformY: 390, speed: 1.15 },
+    { x: 1765, minX: 1745, maxX: 1825, platformY: GROUND_Y, speed: 1.3 },
+    { x: 2180, minX: 2155, maxX: 2260, platformY: 345, speed: 1.1 },
+    { x: 2370, minX: 2350, maxX: 2430, platformY: GROUND_Y, speed: 1.25 }
+  ];
   const keys = { left: false, right: false };
   let jumpQueued = false;
 
   function resetGame() {
-    player = { x: 55, y: GROUND_Y - 48, w: 34, h: 48, vx: 0, vy: 0, onGround: true, face: 1 };
+    player = { x: 55, y: GROUND_Y - 48, w: 34, h: 48, vx: 0, vy: 0, onGround: true, face: 1, hitTimer: 0, knockbackX: 0 };
     coins = coinStarts.map(([x, y]) => ({ x, y, taken: false, phase: Math.random() * Math.PI * 2 }));
+    enemies = enemyStarts.map((enemy) => ({
+      ...enemy,
+      y: enemy.platformY - 30,
+      w: 36,
+      h: 30,
+      dir: 1,
+      alive: true,
+      anim: Math.random() * Math.PI * 2
+    }));
     cameraX = 0;
     collected = 0;
+    lives = 3;
     gameState = 'playing';
     messageTimer = 0;
   }
@@ -140,9 +163,24 @@
 
     const previousBottom = player.y + player.h;
     const moveSpeed = 4.4;
+
+    // 敵を左右にパトロールさせる
+    for (const enemy of enemies) {
+      if (!enemy.alive) continue;
+      enemy.x += enemy.speed * enemy.dir;
+      if (enemy.x <= enemy.minX) { enemy.x = enemy.minX; enemy.dir = 1; }
+      if (enemy.x + enemy.w >= enemy.maxX) { enemy.x = enemy.maxX - enemy.w; enemy.dir = -1; }
+      enemy.anim += 0.12;
+    }
+
     player.vx = 0;
     if (keys.left) { player.vx = -moveSpeed; player.face = -1; }
     if (keys.right) { player.vx = moveSpeed; player.face = 1; }
+    // ダメージを受けた直後は少し押し戻される
+    player.vx += player.knockbackX;
+    player.knockbackX *= 0.82;
+    if (Math.abs(player.knockbackX) < 0.15) player.knockbackX = 0;
+    if (player.hitTimer > 0) player.hitTimer--;
     player.x += player.vx;
     player.x = Math.max(0, Math.min(WORLD_WIDTH - player.w, player.x));
 
@@ -154,6 +192,7 @@
 
     player.vy += 0.58; // 重力。数字を大きくすると落下が速くなる
     player.y += player.vy;
+    const wasFalling = player.vy > 0;
     player.onGround = false;
 
     // 地面に着地
@@ -172,6 +211,33 @@
           player.onGround = true;
         }
       }
+    }
+
+    // 敵との当たり判定
+    for (const enemy of enemies) {
+      if (!enemy.alive) continue;
+      const overlapsX = player.x + player.w > enemy.x + 4 && player.x < enemy.x + enemy.w - 4;
+      const overlapsY = player.y + player.h > enemy.y + 3 && player.y < enemy.y + enemy.h;
+      if (!overlapsX || !overlapsY) continue;
+
+      // 落下中に敵の頭へ着地したら踏みつけ成功
+      if (wasFalling && previousBottom <= enemy.y + 16) {
+        enemy.alive = false;
+        player.y = enemy.y - player.h;
+        player.vy = -8.8; // 踏むと少し高く跳ね返る
+        player.onGround = false;
+      } else if (player.hitTimer === 0) {
+        // 横や下から触れるとライフを1つ失い、少し無敵になる
+        lives--;
+        if (lives <= 0) {
+          gameState = 'game-over';
+        } else {
+          player.hitTimer = 100;
+          player.knockbackX = (player.x + player.w / 2 < enemy.x + enemy.w / 2) ? -5.2 : 5.2;
+          player.vy = -6.5;
+        }
+      }
+      break;
     }
 
     // コインを取る
@@ -290,7 +356,57 @@
     ctx.fillRect(GOAL_X + 8, GROUND_Y, 36, 8);
   }
 
+  function drawEnemies() {
+    for (const enemy of enemies) {
+      if (!enemy.alive) continue;
+      const bob = Math.sin(enemy.anim) * 1.5;
+      const x = enemy.x;
+      const y = enemy.y + bob;
+      ctx.save();
+      // ぷにぷにモンスターの足
+      ctx.fillStyle = '#385b43';
+      const step = Math.sin(enemy.anim * 1.8) * 3;
+      ctx.beginPath();
+      ctx.ellipse(x + 10, y + 27 + step, 7, 4, 0, 0, Math.PI * 2);
+      ctx.ellipse(x + 26, y + 27 - step, 7, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // 体と頭
+      ctx.fillStyle = '#57b96a';
+      ctx.beginPath();
+      ctx.moveTo(x + 2, y + 25);
+      ctx.quadraticCurveTo(x - 2, y + 8, x + 9, y + 4);
+      ctx.quadraticCurveTo(x + 18, y - 2, x + 27, y + 5);
+      ctx.quadraticCurveTo(x + 38, y + 10, x + 34, y + 25);
+      ctx.quadraticCurveTo(x + 18, y + 33, x + 2, y + 25);
+      ctx.fill();
+      // 頭の葉っぱ
+      ctx.fillStyle = '#31894c';
+      ctx.beginPath();
+      ctx.ellipse(x + 18, y + 4, 9, 4, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+      // 目
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(x + 12, y + 15, 4.5, 0, Math.PI * 2);
+      ctx.arc(x + 25, y + 15, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#243047';
+      ctx.beginPath();
+      ctx.arc(x + 13 + enemy.dir, y + 16, 2, 0, Math.PI * 2);
+      ctx.arc(x + 24 + enemy.dir, y + 16, 2, 0, Math.PI * 2);
+      ctx.fill();
+      // ちいさな口
+      ctx.strokeStyle = '#2d7042';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x + 18, y + 21, 3, 0.15, Math.PI - 0.15);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   function drawPlayer() {
+    if (player.hitTimer > 0 && Math.floor(player.hitTimer / 7) % 2 === 0) return;
     const x = player.x;
     const y = player.y;
     // 影
@@ -315,19 +431,26 @@
   }
 
   function drawHud() {
-    roundedRect(18, 16, 205, 52, 14, '#ffffffdf');
+    roundedRect(18, 16, 285, 58, 14, '#ffffffdf');
     ctx.fillStyle = '#26344d';
-    ctx.font = 'bold 22px system-ui, sans-serif';
-    ctx.fillText(`🪙 ${collected} / ${NEED_COINS}`, 34, 50);
-    ctx.font = '13px system-ui, sans-serif';
+    ctx.font = 'bold 21px system-ui, sans-serif';
+    ctx.fillText(`🪙 ${collected} / ${NEED_COINS}`, 32, 42);
+    ctx.font = 'bold 19px system-ui, sans-serif';
+    ctx.fillStyle = '#e75b68';
+    ctx.fillText(`❤ ${lives}`, 172, 42);
+    ctx.font = '12px system-ui, sans-serif';
     ctx.fillStyle = '#52627c';
-    ctx.fillText('コインを5枚集めよう', 112, 48);
+    ctx.fillText('コイン', 34, 61);
+    ctx.fillText('ライフ', 172, 61);
 
     if (gameState === 'need-more') {
       drawMessage('あと少し！', `コインをあと${NEED_COINS - collected}枚集めよう`);
     }
     if (gameState === 'won') {
       drawMessage('ステージクリア！', 'やったね！「最初から」で何度でも遊べるよ');
+    }
+    if (gameState === 'game-over') {
+      drawMessage('ゲームオーバー', 'ライフがなくなったよ。「最初から」または R キーで再挑戦！');
     }
   }
 
@@ -352,6 +475,7 @@
     ctx.save();
     ctx.translate(-cameraX, 0);
     drawWorld();
+    drawEnemies();
     drawPlayer();
     ctx.restore();
     drawHud();
