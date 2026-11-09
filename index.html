@@ -109,6 +109,7 @@
   let lives = 3;
   let gameState = 'playing'; // playing / won / need-more / game-over
   let messageTimer = 0;
+  let clearFanfarePlayed = false;
 
   // ===== 0. オリジナル効果音（Web Audio API） =====
   // 外部音源は使わず、ブラウザ内で短い音を合成する。
@@ -284,6 +285,19 @@
     playTone(110, 55, 0.105, 'sine', 0.055, 0.018);
   }
 
+  // ゴール到達時にBGMを止め、クリア専用の短いファンファーレを1回だけ鳴らす。
+  function playClearFanfare() {
+    if (clearFanfarePlayed) return;
+    clearFanfarePlayed = true;
+    stopBgm();
+    // 明るい「ジャーン！」系の上昇フレーズ。
+    playTone(523, 523, 0.16, 'square', 0.055, 0.00);
+    playTone(659, 659, 0.16, 'square', 0.055, 0.16);
+    playTone(784, 784, 0.16, 'square', 0.055, 0.32);
+    playTone(1047, 1047, 0.34, 'square', 0.07, 0.48);
+    playTone(523, 784, 0.52, 'triangle', 0.035, 0.48);
+  }
+
   // 敵を倒した位置から、星の紙吹雪が四方に飛び散る。
   function spawnStarBurst(x, y) {
     const colors = ['#ffe45e', '#fff6b0', '#ff9fcb', '#8ee7ff', '#ffffff'];
@@ -398,6 +412,7 @@
     lives = 3;
     gameState = 'playing';
     messageTimer = 0;
+    clearFanfarePlayed = false;
   }
 
   // ===== 3. キーボード操作 =====
@@ -621,7 +636,10 @@
 
     // ゴール判定
     if (player.x > GOAL_X && player.x < GOAL_X + 90) {
-      if (collected >= NEED_COINS) gameState = 'won';
+      if (collected >= NEED_COINS) {
+        gameState = 'won';
+        playClearFanfare();
+      }
       else { gameState = 'need-more'; messageTimer = 100; player.x = GOAL_X - 5; }
     }
   }
