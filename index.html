@@ -868,3 +868,15 @@ if (player.x > GOAL_X && player.x < GOAL_X + 90) {
     player.x = GOAL_X - 5;
   }
 }
+通常時
+└─ BGM ON → BGM再生
+
+ゴール到達
+└─ ゴール判定
+   ├─ BGM停止
+   ├─ ファンファーレ再生（1回だけ）
+   └─ クリア処理
+
+BGM OFFの場合
+└─ BGMは停止したまま
+   └─ ファンファーレだけ再生
