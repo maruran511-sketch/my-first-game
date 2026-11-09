@@ -290,6 +290,12 @@
     playTone(1320, 1660, 0.095, 'sine', 0.05, 0.055);
   }
 
+  function playJumpSound() {
+    // ジャンプした瞬間の軽い「ピョンッ！」という音。
+    playTone(420, 760, 0.10, 'square', 0.045);
+    playTone(760, 980, 0.075, 'sine', 0.032, 0.045);
+  }
+
   function playEnemyStompSound() {
     // 敵を踏んだ瞬間の、低くて軽いオリジナルの「ポンッ！」。
     // 3つの短い音を重ね、既存のブロック／コイン音と区別する。
@@ -515,6 +521,7 @@
     if (jumpQueued && player.onGround) {
       player.vy = -13.2;
       player.onGround = false;
+      playJumpSound();
     }
     jumpQueued = false;
 
