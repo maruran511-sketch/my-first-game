@@ -105,7 +105,7 @@
   let player;
   let cameraX = 0;
   let collected = 0;
-  let score = 0; // 敵を倒すと100点ずつ加算
+  let score = 0; // 敵を倒すと100点、コインを取ると50点加算
   let lives = 3;
   let gameState = 'playing'; // playing / won / need-more / game-over
   let messageTimer = 0;
@@ -568,6 +568,7 @@
       if (Math.hypot(dx, dy) < 34) {
         coin.taken = true;
         collected++;
+        score += 50; // 通常コインを1枚取ると50点
         playCoinCollectSound();
       }
     }
@@ -579,6 +580,7 @@
       if (Math.hypot(dx, dy) < 34) {
         coin.active = false;
         collected++;
+        score += 50; // ブロックから出たコインを1枚取ると50点
         playCoinCollectSound();
       }
     }
@@ -859,24 +861,3 @@
 </script>
 </body>
 </html>
-// ゴール判定
-if (player.x > GOAL_X && player.x < GOAL_X + 90) {
-  if (collected >= NEED_COINS) gameState = 'won';
-  else {
-    gameState = 'need-more';
-    messageTimer = 100;
-    player.x = GOAL_X - 5;
-  }
-}
-通常時
-└─ BGM ON → BGM再生
-
-ゴール到達
-└─ ゴール判定
-   ├─ BGM停止
-   ├─ ファンファーレ再生（1回だけ）
-   └─ クリア処理
-
-BGM OFFの場合
-└─ BGMは停止したまま
-   └─ ファンファーレだけ再生
