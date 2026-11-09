@@ -118,6 +118,8 @@
   let bgmEnabled = true;
   let bgmTimer = null;
   let bgmStep = 0;
+  // BGM用に予約したオシレーターを追跡し、クリア時に残響も即座に停止する。
+  const bgmOscillators = new Set();
   let nextBgmTime = 0;
   const BGM_BPM = 112;
   const BGM_STEP_SECONDS = 60 / BGM_BPM / 2; // 8分音符
@@ -160,6 +162,8 @@
     gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
     oscillator.connect(gain);
     gain.connect(ac.destination);
+    bgmOscillators.add(oscillator);
+    oscillator.addEventListener('ended', () => bgmOscillators.delete(oscillator), { once: true });
     oscillator.start(startAt);
     oscillator.stop(startAt + duration + 0.02);
   }
@@ -200,6 +204,14 @@
       window.clearInterval(bgmTimer);
       bgmTimer = null;
     }
+
+    // すでにWeb Audioへ予約済みのBGM音も止める。
+    // これをしないと、BGMの最後の音がファンファーレ開始後まで鳴ることがある。
+    for (const oscillator of bgmOscillators) {
+      try { oscillator.stop(); } catch (_) {}
+      try { oscillator.disconnect(); } catch (_) {}
+    }
+    bgmOscillators.clear();
   }
 
   function updateBgmButton() {
