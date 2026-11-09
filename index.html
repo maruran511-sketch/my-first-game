@@ -859,3 +859,12 @@
 </script>
 </body>
 </html>
+// ゴール判定
+if (player.x > GOAL_X && player.x < GOAL_X + 90) {
+  if (collected >= NEED_COINS) gameState = 'won';
+  else {
+    gameState = 'need-more';
+    messageTimer = 100;
+    player.x = GOAL_X - 5;
+  }
+}
