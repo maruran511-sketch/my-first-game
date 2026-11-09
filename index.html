@@ -110,6 +110,7 @@
   let gameState = 'playing'; // playing / won / need-more / game-over
   let messageTimer = 0;
   let clearFanfarePlayed = false;
+  let gameOverSoundPlayed = false;
 
   // ===== 0. オリジナル効果音（Web Audio API） =====
   // 外部音源は使わず、ブラウザ内で短い音を合成する。
@@ -297,6 +298,17 @@
     playTone(110, 55, 0.105, 'sine', 0.055, 0.018);
   }
 
+  // ライフが0になったときの短いゲームオーバー音。
+  // 下がっていく2音＋低いブザーで「終了」を分かりやすくする。
+  function playGameOverSound() {
+    if (gameOverSoundPlayed) return;
+    gameOverSoundPlayed = true;
+    stopBgm();
+    playTone(392, 294, 0.22, 'square', 0.06, 0.00);
+    playTone(294, 220, 0.28, 'square', 0.065, 0.22);
+    playTone(180, 95, 0.42, 'sawtooth', 0.045, 0.48);
+  }
+
   // ゴール到達時にBGMを止め、クリア専用の短いファンファーレを1回だけ鳴らす。
   function playClearFanfare() {
     if (clearFanfarePlayed) return;
@@ -425,6 +437,7 @@
     gameState = 'playing';
     messageTimer = 0;
     clearFanfarePlayed = false;
+    gameOverSoundPlayed = false;
   }
 
   // ===== 3. キーボード操作 =====
@@ -600,6 +613,7 @@
         lives--;
         if (lives <= 0) {
           gameState = 'game-over';
+          playGameOverSound();
         } else {
           player.hitTimer = 100;
           player.knockbackX = (player.x + player.w / 2 < enemy.x + enemy.w / 2) ? -5.2 : 5.2;
