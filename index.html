@@ -126,7 +126,16 @@
   const BGM_STEP_SECONDS = 60 / BGM_BPM / 2; // 8分音符
   // オリジナルの明るい8ビット風メロディ（MIDI音程）。nullは休符。
   const BGM_MELODY = [72, 76, 79, null, 76, 79, 84, null, 81, 79, 76, null, 74, 76, 79, null];
+  // 低音ベース。既存のメロディーを邪魔しないよう、長め・控えめに鳴らす。
   const BGM_BASS = [48, null, 48, null, 53, null, 53, null, 55, null, 55, null, 50, null, 50, null];
+  // 4拍単位のコード進行（C → F → G → Dm）。各コードは3音を重ね、
+  // 明るいゲーム音楽らしい伴奏にする。メロディーとベースはそのまま維持。
+  const BGM_CHORDS = [
+    [60, 64, 67], [60, 64, 67], [60, 64, 67], [60, 64, 67],
+    [65, 69, 72], [65, 69, 72], [65, 69, 72], [65, 69, 72],
+    [67, 71, 74], [67, 71, 74], [67, 71, 74], [67, 71, 74],
+    [62, 65, 69], [62, 65, 69], [62, 65, 69], [62, 65, 69]
+  ];
 
   function unlockAudio(startMusic = true) {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -177,11 +186,19 @@
       const index = bgmStep % BGM_MELODY.length;
       const melodyNote = BGM_MELODY[index];
       const bassNote = BGM_BASS[index];
+      const chord = BGM_CHORDS[index];
       if (melodyNote !== null) {
         scheduleBgmNote(ac, melodyNote, nextBgmTime, BGM_STEP_SECONDS * 0.78, 'square', 0.012);
       }
       if (bassNote !== null) {
         scheduleBgmNote(ac, bassNote, nextBgmTime, BGM_STEP_SECONDS * 0.9, 'triangle', 0.025);
+      }
+      // コード伴奏は柔らかい音色で薄く重ね、メロディーを主役にする。
+      // 2拍ごとに鳴らすことで、音が混み合いすぎないようにする。
+      if (index % 2 === 0 && chord) {
+        for (const chordNote of chord) {
+          scheduleBgmNote(ac, chordNote, nextBgmTime, BGM_STEP_SECONDS * 1.75, 'sine', 0.007);
+        }
       }
       // 4拍ごとに控えめな低音を入れて、リズムを作る。
       if (index % 4 === 0) {
