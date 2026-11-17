@@ -128,7 +128,7 @@
   const BGM_MELODY = [72, 76, 79, null, 76, 79, 84, null, 81, 79, 76, null, 74, 76, 79, null];
   const BGM_BASS = [48, null, 48, null, 53, null, 53, null, 55, null, 55, null, 50, null, 50, null];
 
-  function unlockAudio() {
+  function unlockAudio(startMusic = true) {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) return null;
     try {
@@ -136,9 +136,9 @@
       if (audioContext.state === 'suspended') {
         const resumeResult = audioContext.resume();
         if (resumeResult && typeof resumeResult.then === 'function') {
-          resumeResult.then(() => { if (bgmEnabled) startBgm(); }).catch(() => {});
+          resumeResult.then(() => { if (startMusic && bgmEnabled) startBgm(); }).catch(() => {});
         }
-      } else if (audioContext.state === 'running' && bgmEnabled) {
+      } else if (audioContext.state === 'running' && startMusic && bgmEnabled) {
         startBgm();
       }
       return audioContext;
@@ -245,7 +245,7 @@
   window.addEventListener('keydown', handleAudioGesture);
 
   function playTone(startFrequency, endFrequency, duration, type, volume, delay = 0) {
-    const ac = unlockAudio();
+    const ac = unlockAudio(false);
     if (!ac) return;
 
     const play = () => {
