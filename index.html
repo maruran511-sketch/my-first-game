@@ -145,9 +145,9 @@
       if (audioContext.state === 'suspended') {
         const resumeResult = audioContext.resume();
         if (resumeResult && typeof resumeResult.then === 'function') {
-          resumeResult.then(() => { if (startMusic && bgmEnabled) startBgm(); }).catch(() => {});
+          resumeResult.then(() => { if (startMusic && bgmEnabled && gameState === 'playing') startBgm(); }).catch(() => {});
         }
-      } else if (audioContext.state === 'running' && startMusic && bgmEnabled) {
+      } else if (audioContext.state === 'running' && startMusic && bgmEnabled && gameState === 'playing') {
         startBgm();
       }
       return audioContext;
@@ -243,9 +243,9 @@
   function toggleBgm() {
     bgmEnabled = !bgmEnabled;
     updateBgmButton();
-    if (bgmEnabled) {
+    if (bgmEnabled && gameState === 'playing') {
       const ac = unlockAudio();
-      if (ac && ac.state === 'running') startBgm();
+      if (ac && ac.state === 'running' && gameState === 'playing') startBgm();
     } else {
       stopBgm();
     }
